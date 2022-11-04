@@ -1,5 +1,8 @@
 const express = require('express');
 const redis = require('redis');
+const authe = require('./authe');
+const token = authe.keygen();
+console.log(authe.authenticate(token));
 
 
 /* connecting to redis db */
@@ -24,6 +27,7 @@ const hash = require('object-hash');
 
 /* parsing incoming JSON request */
 const bodyParser = require("body-parser"); // parse application/x-www-form-urlencoded
+// const auth = require('auth');
 app.use(bodyParser.urlencoded({ extended: false })); // parse application/json 
 app.use(express.json());
 app.use(bodyParser.json()); //express middleware 
@@ -35,6 +39,10 @@ app.use(express.urlencoded({ limit: "30mb", extended: true }));
 app.post('/plans', async (req, res) => {
     console.log("POST: /plans");
     console.log(req.body);
+    if(!authe.validateToken(req)){
+        res.status(400).json({message:"wrong bearer token/format"});
+        return;
+    }
     const isValid = validator.validate(req.body, schema);
     if(isValid.errors.length<1){
         req.body = isValid.instance;
@@ -67,6 +75,10 @@ app.post('/plans', async (req, res) => {
 app.get('/plans/:planId', async (req, res) => {
     console.log("GET: plans/");
     console.log(req.params);
+    if(!authe.validateToken(req)){
+        res.status(400).json({message:"wrong bearer token/format"});
+        return;
+    }
     console.log(req.headers['if-none-match']);
     if(req.params.planId == null && req.params.planId == "" && req.params == {}){
         res.status(400).json({"message":"invalid plan ID"});
@@ -101,6 +113,10 @@ app.get('/plans/:planId', async (req, res) => {
 app.patch('/plans/:planId', async (req, res) => {
     console.log("PATCH: plans/");
     console.log(req.params);
+    if(!authe.validateToken(req)){
+        res.status(400).json({message:"wrong bearer token/format"});
+        return;
+    }
     if(req.params.planId == null && req.params.planId == "" && req.params == {}){
         res.status(400).json({"message":"invalid plan ID"});
         console.log("invalid plan ID");
@@ -138,6 +154,10 @@ app.get('/plans', async(req, res) => {
 app.delete('/plans/:planId', async(req, res) => {
     console.log("DELETE: /plans");
     console.log(req.params);
+    if(!authe.validateToken(req)){
+        res.status(400).json({message:"wrong bearer token/format"});
+        return;
+    }
     if(req.params.planId == null && req.params.planId == "" && req.params == {}){
         res.status(400).json({"message":"invalid plan ID"});
         return;
@@ -169,6 +189,27 @@ app.delete('/plans', async(req, res) => {
     console.log("DELETE: /plans. Invalid request");
     res.status(400).json({"message":"invalid plan ID"});
     return;
+});
+
+app.get('/getToken', async(req, res) => {
+    const token = authe.keygen();
+    // console.log(authe.authenticate(token));
+    res.status(200).json({
+        'message': 'SUCCESS!',
+        'token' : token
+    });
+});
+
+app.post('/validateToken', async(req, res) => {
+    validity = authe.validateToken(req);
+    if(validity){
+        res.status(200).json({message: "TOKEN VALID!"});
+        return;
+    }
+    else{
+        res.status(400).json({message:"wrong bearer token/format"});
+        return;
+    }
 });
 
 app.get('/', ( req, res) => {
