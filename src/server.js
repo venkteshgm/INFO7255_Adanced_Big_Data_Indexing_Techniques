@@ -1,7 +1,5 @@
 const express = require('express');
 const redis = require('redis');
-// var validate = require('jsonschema').validate;
-// const client = redis.createClient(port, host);
 
 
 /* connecting to redis db */
@@ -18,21 +16,10 @@ const app = express();
 
 
 /* defining JSON schema for plans */
-var Validator = require('jsonschema').Validator;
+const Validator = require('jsonschema').Validator;
 var validator = new Validator();
-const schema = {
-    "type": "object",
-    "properties":{
-        "objectID" : { "type" : "string"},
-        "name" : { "type" : "string"},
-        "cost" : { "type" : "integer"},
-        "deductible" : { "type" : "integer"},
-        "co-pay" : { "type" : "integer"},
-    },
-    required: ['objectID', 'name', 'cost'],
-    additionalProperties: false
-};
-
+const schemaData = require('fs').readFileSync('Json-Schema.json');
+const schema = JSON.parse(schemaData);
 const hash = require('object-hash');
 
 /* parsing incoming JSON request */
@@ -48,26 +35,24 @@ app.use(express.urlencoded({ limit: "30mb", extended: true }));
 app.post('/plans', async (req, res) => {
     console.log("POST: /plans");
     console.log(req.body);
-    // req.body = JSON.parse(req.body);
     const isValid = validator.validate(req.body, schema);
     if(isValid.errors.length<1){
         req.body = isValid.instance;
-        const value = await client.hGetAll(req.body.objectID);
-        if(value.objectID == req.body.objectID){
-            res.status(409).json({"message":"item already exists"});
+        const value = await client.hGetAll(req.body.objectId);
+        if(value.objectId == req.body.objectId){
+            res.setHeader("ETag", value.ETag).status(409).json({"message":"item already exists"});
             console.log("item already exists");
             return;
         }
         else{
-            const etag = hash(req.body);
-            console.log(etag);
-            for(const item in req.body){
-                await client.hSet(req.body.objectID, item, req.body[item]);  
-            }
-            await client.hSet(req.body.objectID, "etag", etag);
-            res.status(201).json({
+            const ETag = hash(req.body);
+            console.log(ETag);
+            await client.hSet(req.body.objectId, "plan", JSON.stringify(req.body));
+            await client.hSet(req.body.objectId, "ETag", ETag);
+            await client.hSet(req.body.objectId, "objectId", req.body.objectId);
+            res.setHeader("ETag", ETag).status(201).json({
                 "message":"item added",
-                "etag" : etag});
+                "ETag" : ETag});
             console.log("item added");
             return;
         }
@@ -82,17 +67,29 @@ app.post('/plans', async (req, res) => {
 app.get('/plans/:planId', async (req, res) => {
     console.log("GET: plans/");
     console.log(req.params);
+    console.log(req.headers['if-none-match']);
     if(req.params.planId == null && req.params.planId == "" && req.params == {}){
         res.status(400).json({"message":"invalid plan ID"});
         console.log("invalid plan ID");
         return;
     }
     const value = await client.hGetAll(req.params.planId);
-    if(value.objectID == req.params.planId){
-        res.status(200).json(value);
-        console.log("plan found:");
-        console.log(value);
-        return;
+    if(value.objectId == req.params.planId){
+        if(req.headers['if-none-match'] && value.ETag == req.headers['if-none-match']){
+            res.setHeader("ETag", value.ETag).status(304).json({
+                "message" : "plan unchanged",
+                "plan" : JSON.parse(value.plan)
+            });
+            console.log("plan found unchanged:");
+            console.log(JSON.parse(value.plan));
+            return;
+        }
+        else{
+            res.setHeader("ETag", value.ETag).status(200).json(JSON.parse(value.plan));
+            console.log("plan found changed:");
+            console.log(JSON.parse(value.plan));
+            return;
+        }
     }
     else{
         res.status(404).json({"message":"plan not found"});
@@ -100,6 +97,37 @@ app.get('/plans/:planId', async (req, res) => {
         return;
     }
 });
+
+app.patch('/plans/:planId', async (req, res) => {
+    console.log("PATCH: plans/");
+    console.log(req.params);
+    if(req.params.planId == null && req.params.planId == "" && req.params == {}){
+        res.status(400).json({"message":"invalid plan ID"});
+        console.log("invalid plan ID");
+        return;
+    }
+    const ETag = hash(req.body);
+    const value = await client.hGetAll(req.params.planId);
+    if(value.objectId == req.params.planId){
+        if(req.headers['if-match'] || value.ETag == req.headers['if-match']){
+            res.setHeader("ETag", value.ETag).status(412).json(JSON.parse(value.plan));
+            console.log("plan found unchanged:");
+            console.log(JSON.parse(value.plan));
+            return;
+        }
+        else{
+            await client.hSet(req.body.objectId, "plan", JSON.stringify(req.body));
+            await client.hSet(req.body.objectId, "ETag", ETag);
+            res.setHeader("ETag", ETag).status(201).json(JSON.parse(value.plan));
+        }
+    }
+    else{
+        res.status(404).json({"message":"plan not found"});
+        console.log("plan not found");
+        return;
+    }
+});
+
 app.get('/plans', async(req, res) => {
     console.log("GET: /plans. Invalid request");
     res.status(400).json({"message":"invalid plan ID"});
@@ -115,13 +143,13 @@ app.delete('/plans/:planId', async(req, res) => {
         return;
     }
     const value = await client.hGetAll(req.params.planId);
-    if(value.objectID == req.params.planId){
+    if(value.objectId == req.params.planId){
         console.log("item found");
-        console.log(value);
+        console.log(JSON.parse(value.plan));
         const delResult = await client.del(req.params.planId);
         if(delResult){
             console.log("item deleted");
-            res.status(200).json(value);
+            res.status(200).json(JSON.parse(value.plan));
         }
         else{
             console.log("item not deleted");
