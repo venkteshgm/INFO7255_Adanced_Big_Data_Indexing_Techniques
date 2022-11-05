@@ -22,10 +22,12 @@
                 "objectType": {
                     "type": "string"
                 }
-            }
+            },
+            "required" : ["deductible", "_org", "copay", "objectId", "objectType"]
         },
         "linkedPlanServices": {
             "type": "array",
+            "minItems" : 1,
             "items": {
                 "type": "object",
                 "properties": {
@@ -44,7 +46,8 @@
                             "name": {
                                 "type": "string"
                             }
-                        }
+                        },
+                        "required": ["_org", "name", "objectId", "objectType"]
                     },
                     "planserviceCostShares": {
                         "type": "object",
@@ -64,7 +67,8 @@
                             "objectType": {
                                 "type": "string"
                             }
-                        }
+                        },
+                        "required": ["deductible", "_org", "copay", "objectId", "objectType"]
                     },
                     "_org": {
                         "type": "string"
@@ -75,7 +79,8 @@
                     "objectType": {
                         "type": "string"
                     }
-                }
+                },
+                "required": ["linkedService", "planserviceCostShares", "_org", "objectId", "objectType"]
             }
         },
         "_org": {
@@ -94,5 +99,6 @@
             "type": "string"
         }
     },
+    "required" : ["planCostShares", "linkedPlanServices", "_org", "objectId", "objectType", "planType", "creationDate"],
     "additionalProperties": false
 }

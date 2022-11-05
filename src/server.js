@@ -1,16 +1,16 @@
 const express = require('express');
 const redis = require('redis');
 const authe = require('./authe');
-const token = authe.keygen();
-console.log(authe.authenticate(token));
+// const dbCon = require('./dbCon');
+const schema = require('./schema');
 
 
 /* connecting to redis db */
-const client = redis.createClient();
-client.connect();
-client.on('connect', function(){
-    console.log('connected to redis db!');
-});
+// const client = redis.createClient();
+// client.connect();
+// client.on('connect', function(){
+//     console.log('connected to redis db!');
+// });
 
 
 /* creating Express app */
@@ -18,15 +18,11 @@ const port_no = 3000;
 const app = express();
 
 
-/* defining JSON schema for plans */
-const Validator = require('jsonschema').Validator;
-var validator = new Validator();
-const schemaData = require('fs').readFileSync('Json-Schema.json');
-const schema = JSON.parse(schemaData);
-const hash = require('object-hash');
+// const hash = require('object-hash');
 
 /* parsing incoming JSON request */
 const bodyParser = require("body-parser"); // parse application/x-www-form-urlencoded
+const db = require('./dbCon');
 // const auth = require('auth');
 app.use(bodyParser.urlencoded({ extended: false })); // parse application/json 
 app.use(express.json());
@@ -43,21 +39,15 @@ app.post('/plans', async (req, res) => {
         res.status(400).json({message:"wrong bearer token/format"});
         return;
     }
-    const isValid = validator.validate(req.body, schema);
-    if(isValid.errors.length<1){
-        req.body = isValid.instance;
-        const value = await client.hGetAll(req.body.objectId);
-        if(value.objectId == req.body.objectId){
+    if(schema.validator(req.body)){
+        const value = await db.findEntry(req.body.objectId);
+        if(value){
             res.setHeader("ETag", value.ETag).status(409).json({"message":"item already exists"});
             console.log("item already exists");
             return;
         }
         else{
-            const ETag = hash(req.body);
-            console.log(ETag);
-            await client.hSet(req.body.objectId, "plan", JSON.stringify(req.body));
-            await client.hSet(req.body.objectId, "ETag", ETag);
-            await client.hSet(req.body.objectId, "objectId", req.body.objectId);
+            const ETag = (await db.addPlanFromReq(req.body)).ETag;
             res.setHeader("ETag", ETag).status(201).json({
                 "message":"item added",
                 "ETag" : ETag});
@@ -85,7 +75,7 @@ app.get('/plans/:planId', async (req, res) => {
         console.log("invalid plan ID");
         return;
     }
-    const value = await client.hGetAll(req.params.planId);
+    const value = await db.findEntry(req.params.planId);
     if(value.objectId == req.params.planId){
         if(req.headers['if-none-match'] && value.ETag == req.headers['if-none-match']){
             res.setHeader("ETag", value.ETag).status(304).json({
@@ -122,19 +112,24 @@ app.patch('/plans/:planId', async (req, res) => {
         console.log("invalid plan ID");
         return;
     }
-    const ETag = hash(req.body);
-    const value = await client.hGetAll(req.params.planId);
+    if(!schema.validator(req.body)){
+        res.status(400).json({"message":"item isn't valid"});
+        console.log("item isn't valid");
+        return;
+    }
+    const value = await db.findEntry(req.params.planId);
     if(value.objectId == req.params.planId){
-        if(req.headers['if-match'] || value.ETag == req.headers['if-match']){
-            res.setHeader("ETag", value.ETag).status(412).json(JSON.parse(value.plan));
-            console.log("plan found unchanged:");
+        const ETag = value.ETag;
+        if((!req.headers['if-match'] || ETag != req.headers['if-match']) || (schema.hash(req.body) == ETag)){
+            res.setHeader("ETag", ETag).status(412).json(JSON.parse(value.plan));
+            console.log("get updated ETag/plan received is unmodified");
             console.log(JSON.parse(value.plan));
             return;
         }
         else{
-            await client.hSet(req.body.objectId, "plan", JSON.stringify(req.body));
-            await client.hSet(req.body.objectId, "ETag", ETag);
-            res.setHeader("ETag", ETag).status(201).json(JSON.parse(value.plan));
+            const value = await db.addPlanFromReq(req.body);
+            console.log(value);
+            res.setHeader("ETag", value.ETag).status(201).json(JSON.parse(value.plan));
         }
     }
     else{
@@ -162,12 +157,11 @@ app.delete('/plans/:planId', async(req, res) => {
         res.status(400).json({"message":"invalid plan ID"});
         return;
     }
-    const value = await client.hGetAll(req.params.planId);
+    const value = await db.findEntry(req.params.planId);
     if(value.objectId == req.params.planId){
         console.log("item found");
         console.log(JSON.parse(value.plan));
-        const delResult = await client.del(req.params.planId);
-        if(delResult){
+        if(db.deletePlan(req.params)){
             console.log("item deleted");
             res.status(200).json(JSON.parse(value.plan));
         }
@@ -193,7 +187,6 @@ app.delete('/plans', async(req, res) => {
 
 app.get('/getToken', async(req, res) => {
     const token = authe.keygen();
-    // console.log(authe.authenticate(token));
     res.status(200).json({
         'message': 'SUCCESS!',
         'token' : token
@@ -220,11 +213,11 @@ app.listen(port_no, () => {
     console.log('Application starting on port ', port_no);
 });
 
-client.set('framework', 'ReactJS');
+// client.set('framework', 'ReactJS');
 
-client.exists('framework', function(err, reply){
-    if(reply === 1)
-        console.log('exists!');
-    else
-        console.log('doesnt exist');
-});
+// client.exists('framework', function(err, reply){
+//     if(reply === 1)
+//         console.log('exists!');
+//     else
+//         console.log('doesnt exist');
+// });
