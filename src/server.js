@@ -1,40 +1,34 @@
 const express = require('express');
 const redis = require('redis');
 const authe = require('./authe');
-// const dbCon = require('./dbCon');
 const schema = require('./schema');
 
 
-/* connecting to redis db */
-// const client = redis.createClient();
-// client.connect();
-// client.on('connect', function(){
-//     console.log('connected to redis db!');
-// });
 
 
 /* creating Express app */
 const port_no = 3000;
 const app = express();
 
-
-// const hash = require('object-hash');
+// const elasticS = require('./elastic');
+// elasticS.search();
 
 /* parsing incoming JSON request */
 const bodyParser = require("body-parser"); // parse application/x-www-form-urlencoded
 const db = require('./dbCon');
-// const auth = require('auth');
 app.use(bodyParser.urlencoded({ extended: false })); // parse application/json 
 app.use(express.json());
 app.use(bodyParser.json()); //express middleware 
 app.use(express.json({ limit: "30mb", extended: true })); 
 app.use(express.urlencoded({ limit: "30mb", extended: true }));
 
+const elastic = require('./elastic');
+
 
 /* API endpoints */
 app.post('/plans', async (req, res) => {
     console.log("POST: /plans");
-    console.log(req.body);
+    // console.log(req.body);
     if(!authe.validateToken(req)){
         res.status(400).json({message:"wrong bearer token/format"});
         return;
@@ -48,6 +42,7 @@ app.post('/plans', async (req, res) => {
         }
         else{
             const ETag = (await db.addPlanFromReq(req.body)).ETag;
+            await elastic.enter(req.body, req.body.objectId, null, "plan");
             res.setHeader("ETag", ETag).status(201).json({
                 "message":"item added",
                 "ETag" : ETag});
@@ -128,7 +123,9 @@ app.patch('/plans/:planId', async (req, res) => {
         }
         else{
             const value = await db.addPlanFromReq(req.body);
-            console.log(value);
+            await elastic.deleteNested(req.params.planId, "plan");
+            await elastic.enter(req.body, req.params.planId, null, "plan");
+            // console.log(value);
             res.setHeader("ETag", value.ETag).status(201).json(JSON.parse(value.plan));
         }
     }
@@ -162,6 +159,7 @@ app.delete('/plans/:planId', async(req, res) => {
         console.log("item found");
         console.log(JSON.parse(value.plan));
         if(db.deletePlan(req.params)){
+            await elastic.deleteNested(req.params.planId, "plan");
             console.log("item deleted");
             res.status(200).json(JSON.parse(value.plan));
         }
@@ -205,19 +203,15 @@ app.post('/validateToken', async(req, res) => {
     }
 });
 
-app.get('/', ( req, res) => {
+app.get('/', async ( req, res) => {
+    await elastic.deleteNested('12xvxc345ssdsds-508',"plan");
     res.send('Application works!');
+    // elastic.client.deleteByQuery({
+    //     'index' :'my-index',
+    //     'q' : JSON.stringify({match_all:{}})});
+        // 'q' : '{match_all:{}}'});
 });
 
 app.listen(port_no, () => {
     console.log('Application starting on port ', port_no);
 });
-
-// client.set('framework', 'ReactJS');
-
-// client.exists('framework', function(err, reply){
-//     if(reply === 1)
-//         console.log('exists!');
-//     else
-//         console.log('doesnt exist');
-// });

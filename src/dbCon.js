@@ -10,14 +10,6 @@ client.on('connect', function(){
     console.log('connected to redis db!');
 });
 
-// client.set('framework', 'ReactJS');
-
-// client.exists('framework', function(err, reply){
-//     if(reply === 1)
-//         console.log('exists!');
-//     else
-//         console.log('doesnt exist');
-// });
 
 db.findEntry = async function(key){
     const value =  await client.hGetAll(key);
@@ -45,7 +37,6 @@ db.addPlanFromReq = async function(body){
     await client.hSet(body.objectId, "ETag", ETag);
     await client.hSet(body.objectId, "objectId", body.objectId);
     return await this.findEntry(body.objectId);
-    // return ETag;
 };
 
 db.deletePlan = async function(params){
